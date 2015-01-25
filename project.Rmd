@@ -1,0 +1,110 @@
+---
+title: "Weight Lift Quality Prediction"
+date: "Sunday, January 25, 2015"
+output: html_document
+---
+Background
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the quality of their weight lifting exercise. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+Load caret library
+```{r,echo=F}
+library(caret)
+```
+1. Data preparation
+read in training and testing raw data.
+```{r}
+setwd("C:\\")
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+remove variables with no value, sparse values, and non-relavant variables.
+```{r}
+training1 <- training[,!is.na(training[1,])]
+rmlist <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp",
+            "new_window","num_window","kurtosis_roll_belt","kurtosis_picth_belt","kurtosis_yaw_belt",
+"skewness_roll_belt","skewness_roll_belt.1","skewness_yaw_belt","max_yaw_belt","min_yaw_belt",
+"amplitude_yaw_belt","kurtosis_roll_arm","kurtosis_picth_arm","kurtosis_yaw_arm",
+"skewness_roll_arm","skewness_pitch_arm","skewness_yaw_arm","kurtosis_roll_dumbbell",
+"kurtosis_picth_dumbbell","kurtosis_yaw_dumbbell","skewness_roll_dumbbell","skewness_pitch_dumbbell",
+"skewness_yaw_dumbbell","max_yaw_dumbbell","min_yaw_dumbbell","amplitude_yaw_dumbbell",
+"kurtosis_roll_forearm","kurtosis_picth_forearm","kurtosis_yaw_forearm","skewness_roll_forearm",
+"skewness_pitch_forearm","skewness_yaw_forearm","max_yaw_forearm","min_yaw_forearm",
+"amplitude_yaw_forearm")
+training1 <- training1[,!(names(training1) %in% rmlist)]
+```
+remove varibale with no variance and reduce pair-wise correlations with correlation threshold of 0.8. 
+This will prevent buiding a overfitting model.
+```{r}
+training2 <- training1[,-nearZeroVar(training1)]
+training2 <-  training1[,-findCorrelation(cor(training1[,c(1:52)]), .8)]
+```
+Now, only 40 predictors are left to build a model
+```{r}
+names(training2)
+```
+
+2. Model Training
+Cross-validation dataset preparation: split training2 into cross-validation training and testing sets
+```{r}
+set.seed(1)
+inTrainCV <- createDataPartition(training2$classe, p = 0.7, list=FALSE)
+trainingCV <- training2[inTrainCV,]
+testingCV <- training2[-inTrainCV,]
+```
+
+setup trainControl with 10-fold cross-validation
+```{r}
+fitControl <- trainControl(method = "repeatedcv",number = 10,repeats = 10)
+```
+
+We first tried random-forest method, however, it is prohibitively time consumeing, therefore, we turned to quadratic discriminant analyis method to train model with the option of standarizing predictors.
+```{r}
+set.seed(2)
+modFit <- train(classe~., method = "qda", data=trainingCV, trControl = fitControl, 
+                preProcess = c("center","scale"))
+modFit
+```
+As shown above, we achived accuracy of 0.857 on traingCV dataset, we expect the out-of-sample error to be larger for testingCV dataset 
+
+3. Cross-validation and out-of-sample error
+
+use the model to predict the response on cross-validation testing dataset - testingCV 
+```{r}
+predtestingCV <- predict(modFit,testingCV)
+conMatCV <- confusionMatrix(predtestingCV,testingCV$classe)
+conMatCV$table
+```
+
+calculate accuarcy 
+```{r}
+testingCV_accurary <- sum((predtestingCV==testingCV$classe))/dim(testingCV)[1]
+testingCV_accurary 
+```
+The accuracy from testingCV is indeed very close to that from the trainingCV, the out-of-sample error is 
+```{r}
+1-testingCV_accurary
+```
+
+4. Prediction on testing dataset
+```{r}
+predict_testing <- predict(modFit,testing)
+predict_testing
+```
+
+5. Generate prediction to each of the testing case in testing dataset
+```{r}
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(predict_testing)
+```
+19 out of 20 predictions are correct
+
+6. Conlcusion
+In summary, due to time constrain, we used a fast method, quadratic discriminant analysis, to build a model to predict weight lifting quality from five difference types of sensor data. The Acuracy of this model is about 86%, which was verified by cross-validation.  
